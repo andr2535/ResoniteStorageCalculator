@@ -1,0 +1,6 @@
+/target
+/Records*.json
+/exportedReport.json
+/out
+/solver.py
+/non_free_assets.json
