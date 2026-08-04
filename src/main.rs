@@ -98,23 +98,35 @@ async fn main() {
 
 	println!("Fetching {} assets", unknown_assets.len());
 
+	let client = match reqwest::Client::builder().pool_max_idle_per_host(1).build() {
+		Ok(client) => client,
+		Err(err) => {
+			eprintln!("Error in reqwest: {err}");
+			std::process::exit(1)
+		},
+	};
+
 	for asset in unknown_assets {
 		// Fetch from https://api.resonite.com/assets/{Hash} and check for free property
 		let url = format!("https://api.resonite.com/assets/{asset}");
 		println!("Fetching from {url}");
-		let response = reqwest::get(url).await.unwrap().json::<ResoniteApiResponse>().await;
-		match response {
-			Ok(ResoniteApiResponse { free: true, .. }) => {
-				free_assets.insert(asset);
-			},
-			Ok(ResoniteApiResponse { free: false, .. }) => {
-				non_free_assets.insert(asset.clone());
-				existing_non_free_assets.push(asset);
+		match client.get(&url).send().await {
+			Ok(response) => match response.json::<ResoniteApiResponse>().await {
+				Ok(ResoniteApiResponse { free: true, .. }) => {
+					free_assets.insert(asset);
+				},
+				Ok(ResoniteApiResponse { free: false, .. }) => {
+					non_free_assets.insert(asset.clone());
+					existing_non_free_assets.push(asset);
+				},
+				Err(err) => {
+					eprintln!("Error fetching from {url}: {err}");
+				},
 			},
 			Err(err) => {
-				println!("err: {err}");
+				eprintln!("Error fetching from {url}: {err}");
 			},
-		}
+		};
 	}
 
 	let mut exists_list: Vec<_> = existing_non_free_assets
