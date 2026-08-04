@@ -61,11 +61,32 @@ fn write_asset_list(path: &str, list: HashSet<String>) {
 	File::create(path).unwrap().write_all(list_json.as_bytes()).unwrap();
 }
 
+fn read_json_records_from_path(path: &str) -> Result<Vec<Record>, Box<dyn std::error::Error>> {
+	let mut records_string = String::new();
+	File::open(path)?.read_to_string(&mut records_string)?;
+	Ok(serde_json::from_str(&records_string)?)
+}
+
 #[tokio::main]
 async fn main() {
-	let mut records_string = String::new();
-	File::open("./Records.json").unwrap().read_to_string(&mut records_string).unwrap();
-	let records: Vec<Record> = serde_json::from_str(&records_string).unwrap();
+	use std::process::exit;
+
+	let records = match std::env::args().nth(1) {
+		Some(arg) => match read_json_records_from_path(&arg) {
+			Ok(records) => records,
+			Err(err) => {
+				eprintln!("Unable to parse JSON file '{arg}': {err}");
+				exit(1)
+			},
+		},
+		None => {
+			eprint!(
+				"Please specify the JSON file to parse.\n\nThis file can be created by logging into Resonite then sending \
+				 '/requestRecordUsageJSON' to the Resonite user in your contacts.\n\n"
+			);
+			exit(1);
+		},
+	};
 
 	let mut free_assets: HashSet<String> = get_asset_list("./free_assets.json");
 	let mut non_free_assets: HashSet<String> = get_asset_list("./non_free_assets.json");
