@@ -117,12 +117,12 @@ async fn main() {
 		.map(|key| key.to_owned())
 		.partition(|asset| non_free_assets.contains(asset));
 
-	println!("Fetching {} assets", unknown_assets.len());
+	eprintln!("Fetching {} assets", unknown_assets.len());
 
 	for asset in unknown_assets {
 		// Fetch from https://api.resonite.com/assets/{Hash} and check for free property
 		let url = format!("https://api.resonite.com/assets/{asset}");
-		println!("Fetching from {url}");
+		eprintln!("Fetching from {url}");
 		let response = reqwest::get(url).await.unwrap().json::<ResoniteApiResponse>().await;
 		match response {
 			Ok(ResoniteApiResponse { free: true, .. }) => {
@@ -133,7 +133,7 @@ async fn main() {
 				existing_non_free_assets.push(asset);
 			},
 			Err(err) => {
-				println!("err: {err}");
+				eprintln!("err: {err}");
 			},
 		}
 	}
