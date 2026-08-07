@@ -112,37 +112,30 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 		.map(|key| key.to_owned())
 		.partition(|asset| non_free_assets.contains(asset));
 
-	eprintln!("Fetching {} assets", unknown_assets.len());
+	let unknown_assets_length = unknown_assets.len();
+	eprintln!("Fetching {} assets", unknown_assets_length);
 
-	let client = match reqwest::Client::builder().pool_max_idle_per_host(1).build() {
-		Ok(client) => client,
-		Err(err) => {
-			eprintln!("Error in reqwest: {err}");
-			std::process::exit(1)
-		},
-	};
+	let client = reqwest::Client::builder()
+		.pool_max_idle_per_host(1)
+		.build()
+		.with_context(|| "Error creating reqwest client")?;
 
-	for asset in unknown_assets {
+
+	for (i, asset) in unknown_assets.into_iter().enumerate() {
 		// Fetch from https://api.resonite.com/assets/{Hash} and check for free property
 		let url = format!("https://api.resonite.com/assets/{asset}");
-		eprintln!("Fetching from {url}");
-		match client.get(&url).send().await {
-			Ok(response) => match response.json::<ResoniteApiResponse>().await {
-				Ok(ResoniteApiResponse { free: true, .. }) => {
-					free_assets.insert(asset);
-				},
-				Ok(ResoniteApiResponse { free: false, .. }) => {
-					non_free_assets.insert(asset.clone());
-					existing_non_free_assets.push(asset);
-				},
-				Err(err) => {
-					eprintln!("Error fetching from {url}: {err}");
-				},
+		eprintln!("Fetching {}/{unknown_assets_length} from {url}", i + 1);
+
+		match client.get(&url).send().await?.json::<ResoniteApiResponse>().await {
+			Ok(ResoniteApiResponse { free: true, .. }) => {
+				free_assets.insert(asset);
 			},
-			Err(err) => {
-				eprintln!("Error fetching from {url}: {err}");
+			Ok(ResoniteApiResponse { free: false, .. }) => {
+				non_free_assets.insert(asset.clone());
+				existing_non_free_assets.push(asset);
 			},
-		};
+			Err(err) => eprintln!("Error parsing from url {url}, err: {err}"),
+		}
 	}
 
 	// Explicitly close all connections now that fetching is complete
