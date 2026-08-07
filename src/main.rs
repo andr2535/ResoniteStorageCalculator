@@ -76,15 +76,22 @@ fn read_json_records_from_path(path: &Path) -> Result<Vec<Record>, ResoniteStora
 struct Args {
 	/// Path for the JSON file to parse.
 	/// This file can be created by logging into Resonite then sending
-	/// /requestRecordUsageJSON' to the Resonite user in your contacts.
-	records_path: Option<PathBuf>,
+	/// '/requestRecordUsageJSON' to the Resonite user in your contacts.
+	#[arg(default_value = "Records.json")]
+	records_path: PathBuf,
+
+	/// Path to write the output JSON file to.
+	#[arg(short = 'o', long = "output-json", default_value = "exportedReport.json")]
+	export_path: PathBuf,
 }
 
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-	let record_filepath = Args::parse().records_path.unwrap_or(PathBuf::from("./Records.json"));
-	let records = read_json_records_from_path(&record_filepath).with_context(|| "Error reading the records JSON file")?;
+	let args = Args::parse();
+
+	let records = read_json_records_from_path(&args.records_path).with_context(|| "Error reading the records JSON file")?;
+	let mut export_file = File::create(args.export_path).with_context(|| "Error writing the records JSON file")?;
 
 	let mut free_assets: HashSet<String> = get_asset_list("./free_assets.json");
 	let mut non_free_assets: HashSet<String> = get_asset_list("./non_free_assets.json");
@@ -165,8 +172,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 			}
 		})
 		.collect();
-	let mut export_file = File::create("./exportedReport.json").unwrap();
-	let _ = export_file.write(serde_json::to_string_pretty(&export_manifests).unwrap().as_bytes()).unwrap();
+
+	let _ = export_file.write(serde_json::to_string_pretty(&export_manifests).unwrap().as_bytes())?;
 
 	for key in &exists_list {
 		let records: String = map_by_asset_hashes
