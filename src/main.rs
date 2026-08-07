@@ -145,6 +145,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 		};
 	}
 
+	// Explicitly close all connections now that fetching is complete
+	drop(client);
+
 	let mut exists_list: Vec<_> = existing_non_free_assets
 		.iter()
 		.map(|hash| AssetManifest { hash: hash.clone(), bytes: *bytes_by_asset_hash.get(hash).unwrap() })
