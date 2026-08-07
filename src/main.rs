@@ -2,9 +2,13 @@ use std::{
 	collections::{HashMap, HashSet},
 	fs::File,
 	io::{Error, Read, Write},
+	path::{Path, PathBuf},
 };
 
+use anyhow::Context;
+use clap::Parser;
 use serde::{Deserialize, Serialize};
+use thiserror::Error;
 
 
 #[derive(Debug, Deserialize, Clone, Eq, PartialEq, Hash, Serialize)]
@@ -61,22 +65,34 @@ fn write_asset_list(path: &str, list: HashSet<String>) {
 	File::create(path).unwrap().write_all(list_json.as_bytes()).unwrap();
 }
 
-#[tokio::main]
-async fn main() {
+fn read_json_records_from_path(path: &Path) -> Result<Vec<Record>, ResoniteStorageCalculatorError> {
 	let mut records_string = String::new();
-	File::open("./Records.json").unwrap().read_to_string(&mut records_string).unwrap();
-	let records: Vec<Record> = serde_json::from_str(&records_string).unwrap();
+	File::open(path)?.read_to_string(&mut records_string)?;
+	Ok(serde_json::from_str(&records_string)?)
+}
+
+
+#[derive(Debug, Parser)]
+struct Args {
+	/// Path for the JSON file to parse.
+	/// This file can be created by logging into Resonite then sending
+	/// /requestRecordUsageJSON' to the Resonite user in your contacts.
+	records_path: Option<PathBuf>,
+}
+
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+	let record_filepath = Args::parse().records_path.unwrap_or(PathBuf::from("./Records.json"));
+	let records = read_json_records_from_path(&record_filepath).with_context(|| "Error reading the records JSON file")?;
 
 	let mut free_assets: HashSet<String> = get_asset_list("./free_assets.json");
 	let mut non_free_assets: HashSet<String> = get_asset_list("./non_free_assets.json");
 
-	let records: Vec<_> = records
-		.into_iter()
-		.map(|mut record| {
-			record.asset_manifest.retain(|asset| !free_assets.contains(&asset.hash));
-			record
-		})
-		.collect();
+	let records = records.into_iter().map(|mut record| {
+		record.asset_manifest.retain(|asset| !free_assets.contains(&asset.hash));
+		record
+	});
 
 
 	let mut map_by_asset_hashes: HashMap<String, Vec<_>> = HashMap::new();
@@ -96,7 +112,7 @@ async fn main() {
 		.map(|key| key.to_owned())
 		.partition(|asset| non_free_assets.contains(asset));
 
-	println!("Fetching {} assets", unknown_assets.len());
+	eprintln!("Fetching {} assets", unknown_assets.len());
 
 	let client = match reqwest::Client::builder().pool_max_idle_per_host(1).build() {
 		Ok(client) => client,
@@ -109,7 +125,7 @@ async fn main() {
 	for asset in unknown_assets {
 		// Fetch from https://api.resonite.com/assets/{Hash} and check for free property
 		let url = format!("https://api.resonite.com/assets/{asset}");
-		println!("Fetching from {url}");
+		eprintln!("Fetching from {url}");
 		match client.get(&url).send().await {
 			Ok(response) => match response.json::<ResoniteApiResponse>().await {
 				Ok(ResoniteApiResponse { free: true, .. }) => {
@@ -178,4 +194,14 @@ async fn main() {
 	println!("total_exists: {}", exists_list.iter().fold(0, |acc, val| acc + val.bytes));
 	write_asset_list("./free_assets.json", free_assets);
 	write_asset_list("./non_free_assets.json", non_free_assets);
+	Ok(())
+}
+
+
+#[derive(Debug, Error)]
+enum ResoniteStorageCalculatorError {
+	#[error("IO error: {0}")]
+	Io(#[from] std::io::Error),
+	#[error("Deserialize error: {0}")]
+	Deserialize(#[from] serde_json::Error),
 }
