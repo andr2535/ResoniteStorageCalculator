@@ -6,7 +6,7 @@ use std::{
 };
 
 use anyhow::Context;
-use clap::Parser;
+use clap::{Parser, ValueEnum};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -71,8 +71,19 @@ fn read_json_records_from_path(path: &Path) -> Result<Vec<Record>, ResoniteStora
 	Ok(serde_json::from_str(&records_string)?)
 }
 
+#[derive(Debug, ValueEnum, PartialEq, Eq, Clone, Copy)]
+#[clap(rename_all = "camelCase")]
+enum SortingMethods {
+	RecordCountThenSize,
+	SizeOverRecordCount,
+}
 
 #[derive(Debug, Parser)]
+#[clap(
+	name = "ResoniteStorageCalculator",
+	about = "A program for parsing, and making sense of the Resonite Storage json",
+	version
+)]
 struct Args {
 	/// Path for the JSON file to parse.
 	/// This file can be created by logging into Resonite then sending
@@ -83,6 +94,10 @@ struct Args {
 	/// Path to write the output JSON file to.
 	#[arg(short = 'o', long = "output-json", default_value = "exportedReport.json")]
 	export_path: PathBuf,
+
+	/// Options for sorting of Assets output
+	#[arg(short = 's', long = "sorting-method", default_value = "sizeOverRecordCount")]
+	sorting_method: SortingMethods,
 }
 
 
@@ -152,12 +167,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 		.iter()
 		.map(|hash| AssetManifest { hash: hash.clone(), bytes: *bytes_by_asset_hash.get(hash).unwrap() })
 		.collect();
-	exists_list.sort_by(|a, b| {
-		let a_len = map_by_asset_hashes.get(&a.hash).unwrap().len();
-		let b_len = map_by_asset_hashes.get(&b.hash).unwrap().len();
-		let cmp = b_len.cmp(&a_len);
-		if cmp.is_eq() { a.bytes.cmp(&b.bytes) } else { cmp }
-	});
+	let sorting_method = &args.sorting_method;
+	match sorting_method {
+		SortingMethods::RecordCountThenSize => exists_list.sort_by(|a, b| {
+			let a_len = map_by_asset_hashes.get(&a.hash).unwrap().len();
+			let b_len = map_by_asset_hashes.get(&b.hash).unwrap().len();
+			let cmp = b_len.cmp(&a_len);
+			if cmp.is_eq() { a.bytes.cmp(&b.bytes) } else { cmp }
+		}),
+		SortingMethods::SizeOverRecordCount => exists_list.sort_by(|a, b| {
+			let a_len = map_by_asset_hashes.get(&a.hash).unwrap().len();
+			let b_len = map_by_asset_hashes.get(&b.hash).unwrap().len();
+			let a_val = a.bytes as f64 / a_len as f64;
+			let b_val = b.bytes as f64 / b_len as f64;
+			a_val.partial_cmp(&b_val).unwrap()
+		}),
+	}
 
 	let export_manifests: Vec<ExportAssetManifest> = exists_list
 		.iter()
